@@ -1,0 +1,22 @@
+{
+  "name": "love-menu-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node src/index.js",
+    "self-test": "node src/self-test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.30.10",
+    "express": "^4.19.2",
+    "@simplewebauthn/server": "^13.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.0.7",
+    "nodemailer": "^6.9.16",
+    "sql.js": "^1.10.3",
+    "web-push": "^3.6.7"
+  }
+}

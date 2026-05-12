@@ -1,0 +1,35 @@
+:root {
+  color-scheme: light;
+  --color-bg: #fbf7f2;
+  --color-surface: #ffffff;
+  --color-border: rgba(37, 32, 29, 0.12);
+  --color-text: #2f2a27;
+  --color-text-strong: #1f1a17;
+  --color-muted: rgba(47, 42, 39, 0.72);
+  --color-accent: #d16a54;
+  --font-display: 'Stardos Stencil', 'Noto Serif SC', serif;
+  --font-body: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--color-bg);
+}
+
+button,
+input {
+  color: inherit;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+}
