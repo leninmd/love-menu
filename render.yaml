@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: lovemenu-server
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: node src/index.js
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_AUTH_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SMTP_HOST
+        value: smtp-relay.brevo.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        value: BA-mN461jEEUci7IltiJY50pZpdRcgeiS7taV08wPkIuLFmgzM9sUhBkjHVUpcS42M9biJdvonLooEdIvBXUE8Y
+      - key: VAPID_PRIVATE_KEY
+        value: DIm5bAi_3zw8mHI4zYRWxt5JjAWoFzy_fXPgAzH5xjg
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: RP_ID
+        sync: false
+      - key: RP_ORIGIN
+        sync: false
+      - key: RP_NAME
+        value: 恋上菜单
+      - key: CORS_ORIGIN
+        sync: false
