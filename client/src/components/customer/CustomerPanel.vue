@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useCustomerFlow } from '../../composables/useCustomerFlow'
 import { useOrderStream } from '../../composables/useOrderStream'
 import { useSession } from '../../composables/useSession'
@@ -9,17 +10,26 @@ import CustomerCart from './CustomerCart.vue'
 import CustomerOrders from './CustomerOrders.vue'
 import MessageCenter from '../messages/MessageCenter.vue'
 import { useMessages } from '../../composables/useMessages'
+import { fetchMenu } from '../../api/client'
 
+const route = useRoute()
 const session = useSession()
 const flow = useCustomerFlow(
   () => session.token.value,
-  () => session.restaurantId.value
+  () => activeRestaurantId.value
 )
 const stream = useOrderStream()
 const messages = useMessages(
   () => session.token.value,
-  () => session.restaurantId.value
+  () => activeRestaurantId.value
 )
+
+const guestRestaurantId = shallowRef('')
+const activeRestaurantId = computed(
+  () => session.restaurantId.value || guestRestaurantId.value
+)
+const showAuthPrompt = shallowRef(false)
+const pendingDishId = shallowRef('')
 
 const search = shallowRef('')
 const searchTerm = computed(() => search.value.trim())
@@ -29,11 +39,9 @@ let searchTimer: number | null = null
 watch(
   searchTerm,
   (value) => {
-    if (searchTimer) {
-      window.clearTimeout(searchTimer)
-    }
+    if (searchTimer) window.clearTimeout(searchTimer)
     searchTimer = window.setTimeout(() => {
-      if (hasSession.value) {
+      if (activeRestaurantId.value) {
         flow.loadMenu(value)
       }
     }, 300)
@@ -62,17 +70,29 @@ function handleStream(event: Event) {
   flow.setOrders(detail.orders)
 }
 
+async function loadGuestMenu() {
+  const rid = String(route.query.restaurant || '').trim()
+  if (rid) {
+    guestRestaurantId.value = rid
+    try {
+      const menu = await fetchMenu(rid)
+      flow.menu.value = menu
+    } catch {
+      // 静默失败，用户登录后可通过 bootstrap 获取
+    }
+  }
+}
+
 async function init() {
-  await session.bootstrap()
+  await loadGuestMenu()
   if (hasSession.value) {
+    await session.bootstrap()
     await Promise.all([
       flow.loadMenu(searchTerm.value),
       flow.loadCart(),
       flow.loadOrders(),
       messages.loadCustomer()
     ])
-  }
-  if (session.token.value) {
     stream.connect(session.token.value, {
       owner: false,
       restaurantId: session.restaurantId.value
@@ -81,9 +101,29 @@ async function init() {
   }
 }
 
-async function handleLogin(token: string) {
+async function handleAddItem(dishId: string) {
+  if (!hasSession.value) {
+    pendingDishId.value = dishId
+    showAuthPrompt.value = true
+    return
+  }
+  await flow.addItem(dishId)
+}
+
+async function handleLoginForCart(token: string) {
   session.setToken(token)
-  await init()
+  showAuthPrompt.value = false
+  await session.bootstrap()
+  if (pendingDishId.value) {
+    await flow.addItem(pendingDishId.value)
+    pendingDishId.value = ''
+  }
+  await Promise.all([flow.loadMenu(), flow.loadCart(), flow.loadOrders()])
+  stream.connect(session.token.value, {
+    owner: false,
+    restaurantId: session.restaurantId.value
+  })
+  startPolling()
 }
 
 onMounted(() => {
@@ -117,16 +157,27 @@ onBeforeUnmount(() => {
     <p v-else-if="session.error.value" class="panel-error">
       {{ session.error.value }}
     </p>
-    <p v-else-if="flow.error.value" class="panel-error">{{ flow.error.value }}</p>
-    <AuthPanel v-if="!hasSession" @success="handleLogin" />
-    <div v-else class="panel-grid">
+    <p v-else-if="flow.error.value" class="panel-error">
+      {{ flow.error.value }}
+    </p>
+
+    <div v-if="showAuthPrompt" class="auth-overlay">
+      <p class="auth-hint">请先登录后再操作</p>
+      <AuthPanel @success="handleLoginForCart" />
+      <button class="auth-cancel" type="button" @click="showAuthPrompt = false">
+        取消
+      </button>
+    </div>
+
+    <div class="panel-grid">
       <CustomerMenu
         :categories="flow.menu.value.categories"
         :dishes="flow.menu.value.dishes"
         :search="search"
-        @add="flow.addItem"
+        @add="handleAddItem"
       />
       <CustomerCart
+        v-if="hasSession"
         :items="flow.cart.value.items"
         :loading="flow.loading.value"
         @update="flow.updateItem"
@@ -235,5 +286,28 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 11px;
   color: var(--color-muted);
+}
+
+.auth-overlay {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.auth-hint {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.auth-cancel {
+  margin-top: 12px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  padding: 6px 16px;
+  border-radius: 999px;
+  cursor: pointer;
 }
 </style>

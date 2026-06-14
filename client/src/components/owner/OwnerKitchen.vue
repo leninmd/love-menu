@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, shallowRef } from 'vue'
+import { computed, onMounted, shallowRef } from 'vue'
 import {
   createCategory,
   createDish,
@@ -7,8 +7,14 @@ import {
   deleteDish,
   fetchOwnerMenu,
   updateCategory,
-  updateDish
+  updateDish,
+  updateRestaurant,
+  deleteRestaurant,
+  uploadImage,
+  fetchGuestLevels,
+  updateGuestLevels
 } from '../../api/client'
+import type { GuestLevel } from '../../api/client'
 
 interface Category {
   id: string
@@ -22,6 +28,7 @@ interface Dish {
   category_id: string | null
   description?: string | null
   price?: number | null
+  image_url?: string | null
   sources?: string | null
   is_deleted: number
 }
@@ -29,6 +36,10 @@ interface Dish {
 const props = defineProps<{
   token: string
   restaurantId: string
+}>()
+
+const emit = defineEmits<{
+  deleted: []
 }>()
 
 const loading = shallowRef(false)
@@ -44,6 +55,15 @@ const formDishCategory = shallowRef('')
 const formDishPrice = shallowRef('')
 const formDishSources = shallowRef('')
 const formDishDescription = shallowRef('')
+const formDishImage = shallowRef<File | null>(null)
+
+const restaurantName = shallowRef('')
+const restaurantIntro = shallowRef('')
+const shareCopied = shallowRef(false)
+
+const guestLevels = shallowRef<{ title: string; minOrders: number }[]>([])
+const newLevelTitle = shallowRef('')
+const newLevelMinOrders = shallowRef('')
 
 async function loadMenu() {
   if (!props.token || !props.restaurantId) return
@@ -58,6 +78,69 @@ async function loadMenu() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadGuestLevels() {
+  if (!props.restaurantId) return
+  try {
+    const data = await fetchGuestLevels(props.restaurantId)
+    guestLevels.value = data.levels.map((l: GuestLevel) => ({
+      title: l.title,
+      minOrders: l.min_orders
+    }))
+  } catch {
+    guestLevels.value = []
+  }
+}
+
+async function handleSaveRestaurant() {
+  if (!restaurantName.value.trim()) {
+    error.value = '请输入餐厅名称'
+    return
+  }
+  loading.value = true
+  error.value = ''
+  try {
+    await updateRestaurant(props.token, props.restaurantId, {
+      name: restaurantName.value.trim(),
+      intro: restaurantIntro.value.trim() || undefined
+    })
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '保存失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleDeleteRestaurant() {
+  if (!confirm('确认删除此餐厅？删除后将显示"已下线"')) return
+  loading.value = true
+  error.value = ''
+  try {
+    await deleteRestaurant(props.token, props.restaurantId)
+    emit('deleted')
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '删除失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function copyShareLink() {
+  const base = window.location.origin
+  const link = `${base}/customer?restaurant=${props.restaurantId}`
+  navigator.clipboard.writeText(link).then(() => {
+    shareCopied.value = true
+    setTimeout(() => {
+      shareCopied.value = false
+    }, 2000)
+  })
+}
+
+async function handleImageUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length) return
+  formDishImage.value = input.files[0]
 }
 
 async function handleCreateCategory() {
@@ -124,19 +207,26 @@ async function handleCreateDish() {
   loading.value = true
   error.value = ''
   try {
+    let imageUrl: string | undefined
+    if (formDishImage.value) {
+      const result = await uploadImage(props.token, formDishImage.value)
+      imageUrl = result.imageUrl
+    }
     const priceValue = formDishPrice.value.trim()
     await createDish(props.token, props.restaurantId, {
       name: formDishName.value.trim(),
       categoryId: formDishCategory.value || null,
       description: formDishDescription.value.trim() || undefined,
       price: priceValue ? Number.parseInt(priceValue, 10) : null,
-      sources: formDishSources.value.trim() || null
+      sources: formDishSources.value.trim() || null,
+      imageUrl
     })
     formDishName.value = ''
     formDishCategory.value = ''
     formDishPrice.value = ''
     formDishSources.value = ''
     formDishDescription.value = ''
+    formDishImage.value = null
     await loadMenu()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '新增菜品失败'
@@ -177,35 +267,79 @@ async function handleDeleteDish(dishId: string) {
   }
 }
 
-const activeDishes = computed(() => dishes.value.filter((dish) => dish.is_deleted === 0))
+function addGuestLevel() {
+  const title = newLevelTitle.value.trim()
+  const minOrders = Number.parseInt(newLevelMinOrders.value, 10) || 0
+  if (!title) return
+  guestLevels.value.push({ title, minOrders })
+  newLevelTitle.value = ''
+  newLevelMinOrders.value = ''
+}
 
-loadMenu()
+function removeGuestLevel(index: number) {
+  guestLevels.value.splice(index, 1)
+}
+
+async function saveGuestLevels() {
+  loading.value = true
+  error.value = ''
+  try {
+    await updateGuestLevels(props.token, props.restaurantId, guestLevels.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '保存等级失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+const activeDishes = computed(() =>
+  dishes.value.filter((dish) => dish.is_deleted === 0)
+)
+
+onMounted(() => {
+  loadMenu()
+  loadGuestLevels()
+})
 </script>
 
 <template>
   <section class="card">
     <header class="card-header">
       <div>
-        <h2 class="card-title">菜单管理</h2>
-        <p class="card-subtitle">分类与菜品的增删改</p>
+        <h2 class="card-title">厨房管理</h2>
+        <p class="card-subtitle">餐厅设置、分类、菜品与食客等级</p>
       </div>
       <button class="ghost" type="button" @click="loadMenu">刷新</button>
     </header>
 
     <div class="card-body">
-      <p v-if="loading" class="empty">菜单加载中...</p>
+      <p v-if="loading" class="empty">加载中...</p>
       <p v-else-if="error" class="empty">{{ error }}</p>
 
       <section class="block">
-        <h3 class="block-title">新增分类</h3>
+        <h3 class="block-title">餐厅设置</h3>
+        <div class="form-grid">
+          <input v-model="restaurantName" class="input" placeholder="餐厅名称" />
+          <input v-model="restaurantIntro" class="input" placeholder="简介（选填）" />
+        </div>
+        <div class="list-actions">
+          <button class="primary" type="button" @click="handleSaveRestaurant">
+            保存设置
+          </button>
+          <button class="ghost" type="button" @click="copyShareLink">
+            {{ shareCopied ? '已复制' : '复制分享链接' }}
+          </button>
+          <button class="ghost ghost-danger" type="button" @click="handleDeleteRestaurant">
+            删除餐厅
+          </button>
+        </div>
+      </section>
+
+      <section class="block">
+        <h3 class="block-title">分类管理</h3>
         <div class="form-grid">
           <input v-model="formCategoryName" class="input" placeholder="分类名称" />
-          <input
-            v-model.number="formCategorySort"
-            class="input"
-            type="number"
-            placeholder="排序"
-          />
+          <input v-model.number="formCategorySort" class="input" type="number" placeholder="排序" />
           <button class="primary" type="button" @click="handleCreateCategory">
             添加分类
           </button>
@@ -213,11 +347,7 @@ loadMenu()
         <div class="list">
           <div v-for="category in categories" :key="category.id" class="list-item">
             <input v-model="category.name" class="input" />
-            <input
-              v-model.number="category.sort_order"
-              class="input"
-              type="number"
-            />
+            <input v-model.number="category.sort_order" class="input" type="number" />
             <div class="list-actions">
               <button class="ghost" type="button" @click="handleUpdateCategory(category)">
                 保存
@@ -243,6 +373,10 @@ loadMenu()
           <input v-model="formDishPrice" class="input" placeholder="价格（分）" />
           <input v-model="formDishSources" class="input" placeholder="来源（逗号分隔）" />
           <input v-model="formDishDescription" class="input" placeholder="描述" />
+          <label class="file-label">
+            <input type="file" accept="image/*" @change="handleImageUpload" />
+            <span class="file-text">{{ formDishImage ? formDishImage.name : '选择图片' }}</span>
+          </label>
           <button class="primary" type="button" @click="handleCreateDish">添加菜品</button>
         </div>
         <div class="list">
@@ -258,12 +392,29 @@ loadMenu()
             <input v-model="dish.sources" class="input" placeholder="来源" />
             <div class="list-actions">
               <button class="ghost" type="button" @click="handleUpdateDish(dish)">保存</button>
-              <button class="ghost" type="button" @click="handleDeleteDish(dish.id)">
-                删除
-              </button>
+              <button class="ghost" type="button" @click="handleDeleteDish(dish.id)">删除</button>
             </div>
           </div>
         </div>
+      </section>
+
+      <section class="block">
+        <h3 class="block-title">食客等级</h3>
+        <div class="form-grid">
+          <input v-model="newLevelTitle" class="input" placeholder="称号" />
+          <input v-model="newLevelMinOrders" class="input" type="number" placeholder="最低下单次数" />
+          <button class="primary" type="button" @click="addGuestLevel">添加等级</button>
+        </div>
+        <div class="list">
+          <div v-for="(level, idx) in guestLevels" :key="idx" class="list-item">
+            <input v-model="level.title" class="input" />
+            <input v-model.number="level.minOrders" class="input" type="number" />
+            <div class="list-actions">
+              <button class="ghost" type="button" @click="removeGuestLevel(idx)">移除</button>
+            </div>
+          </div>
+        </div>
+        <button class="primary" type="button" @click="saveGuestLevels">保存等级</button>
       </section>
     </div>
   </section>
@@ -306,6 +457,11 @@ loadMenu()
   cursor: pointer;
 }
 
+.ghost-danger {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
 .card-body {
   display: grid;
   gap: 12px;
@@ -335,6 +491,24 @@ loadMenu()
   border-radius: 12px;
   border: 1px solid var(--color-border);
   padding: 6px 10px;
+}
+
+.file-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.file-label input[type="file"] {
+  display: none;
+}
+
+.file-text {
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--color-muted);
 }
 
 .list {

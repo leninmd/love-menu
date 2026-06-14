@@ -1,12 +1,16 @@
 "use strict";
 
 const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const path = require("path");
 const { config } = require("./config");
 const { requestEmailCode, verifyEmailCode } = require("./email");
 const { migrate } = require("./migrate");
 const {
   authRequired,
   createEmailSession,
+  findOrCreateUser,
   verifyToken,
   extractToken
 } = require("./auth");
@@ -32,12 +36,23 @@ const {
   listOrdersByRestaurant,
   updateOrderStatusForOwner
 } = require("./services/orders");
-const { ensureRestaurantOwner } = require("./services/restaurants");
+const {
+  ensureRestaurantOwner,
+  createRestaurant,
+  listMyRestaurants,
+  updateRestaurant,
+  softDeleteRestaurant
+} = require("./services/restaurants");
 const { sendPush, isReady: isPushReady } = require("./push");
 const { createRateLimiter } = require("./rate-limit");
+const { upload, processAndSaveImage } = require("./upload");
 
 const app = express();
-app.use(express.json());
+app.set("trust proxy", 1);
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(cors(config.corsOrigin ? { origin: config.corsOrigin } : undefined));
+app.use(express.json({ limit: "1mb" }));
+app.use("/uploads", express.static(path.resolve(process.cwd(), "../data/uploads")));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -83,7 +98,7 @@ app.post("/v1/auth/email/start", authLimiter, async (req, res) => {
   }
 });
 
-app.post("/v1/auth/email/verify", authLimiter, (req, res) => {
+app.post("/v1/auth/email/verify", authLimiter, async (req, res) => {
   const email = String(req.body.email || "").trim();
   const code = String(req.body.code || "").trim();
   if (!email || !code) {
@@ -92,7 +107,9 @@ app.post("/v1/auth/email/verify", authLimiter, (req, res) => {
 
   try {
     verifyEmailCode(email, code);
-    const session = createEmailSession(email);
+    const { db } = await dbPromise;
+    const user = await findOrCreateUser(db, email);
+    const session = createEmailSession(user);
     return res.json({ token: session.token, user: session.user });
   } catch (error) {
     return res.status(error.status || 400).json({ error: error.message });
@@ -121,7 +138,7 @@ app.post("/v1/auth/webauthn/register/finish", authLimiter, async (req, res) => {
   try {
     const { db } = await dbPromise;
     const result = await registerFinish(db, userId, response, deviceName);
-    const session = createEmailSession(result.user.email);
+    const session = createEmailSession(result.user);
     return res.json({ token: session.token, user: session.user });
   } catch (error) {
     return res.status(error.status || 400).json({ error: error.message });
@@ -148,7 +165,7 @@ app.post("/v1/auth/webauthn/login/finish", authLimiter, async (req, res) => {
   try {
     const { db } = await dbPromise;
     const result = await loginFinish(db, userId, response);
-    const session = createEmailSession(result.user.email);
+    const session = createEmailSession(result.user);
     return res.json({ token: session.token, user: session.user });
   } catch (error) {
     return res.status(error.status || 400).json({ error: error.message });
@@ -160,6 +177,124 @@ app.post("/v1/dev/seed", authRequired, async (req, res) => {
   const restaurantId = await ensureSampleRestaurant(db, req.user.id);
   await ensureSampleMenu(db, restaurantId);
   return res.json({ restaurantId });
+});
+
+app.post("/v1/restaurants", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  const name = String(req.body.name || "").trim();
+  const intro = String(req.body.intro || "").trim() || null;
+  if (!name) {
+    return res.status(400).json({ error: "name_required" });
+  }
+  try {
+    const restaurant = await createRestaurant(db, req.user.id, name, intro);
+    return res.json(restaurant);
+  } catch (error) {
+    return res.status(error.status || 400).json({ error: error.message });
+  }
+});
+
+app.get("/v1/restaurants/mine", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  const restaurants = await listMyRestaurants(db, req.user.id);
+  return res.json({ restaurants });
+});
+
+app.put("/v1/restaurants/:id", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  const name = String(req.body.name || "").trim();
+  const intro = String(req.body.intro || "").trim() || null;
+  const avatarUrl = String(req.body.avatarUrl || "").trim() || null;
+  if (!name) {
+    return res.status(400).json({ error: "name_required" });
+  }
+  try {
+    await ensureRestaurantOwner(db, req.params.id, req.user.id);
+    await updateRestaurant(db, req.params.id, name, intro, avatarUrl);
+    return res.json({ status: "ok" });
+  } catch (error) {
+    return res.status(error.status || 403).json({ error: error.message });
+  }
+});
+
+app.delete("/v1/restaurants/:id", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  try {
+    await ensureRestaurantOwner(db, req.params.id, req.user.id);
+    await softDeleteRestaurant(db, req.params.id);
+    return res.json({ status: "ok" });
+  } catch (error) {
+    return res.status(error.status || 403).json({ error: error.message });
+  }
+});
+
+app.post("/v1/upload", authRequired, upload.single("image"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "file_required" });
+  }
+  try {
+    const imageUrl = await processAndSaveImage(req.file.buffer);
+    return res.json({ imageUrl });
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+app.delete("/v1/users/me", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  const userId = req.user.id;
+
+  const ownedRestaurants = await db.all(
+    "SELECT id FROM restaurants WHERE owner_id = ? AND is_deleted = 0",
+    [userId]
+  );
+  for (const r of ownedRestaurants) {
+    await softDeleteRestaurant(db, r.id);
+  }
+
+  await db.run("DELETE FROM push_subscriptions WHERE user_id = ?", [userId]);
+  await db.run("DELETE FROM cart_items WHERE cart_id IN (SELECT id FROM carts WHERE user_id = ?)", [userId]);
+  await db.run("DELETE FROM carts WHERE user_id = ?", [userId]);
+  await db.run("DELETE FROM credentials WHERE user_id = ?", [userId]);
+  await db.run("DELETE FROM reviews WHERE user_id = ?", [userId]);
+  await db.run("DELETE FROM users WHERE id = ?", [userId]);
+
+  return res.json({ status: "ok" });
+});
+
+app.get("/v1/restaurants/:id/guest-levels", async (req, res) => {
+  const { db } = await dbPromise;
+  const levels = await db.all(
+    "SELECT id, title, min_orders, sort_order FROM guest_levels WHERE restaurant_id = ? ORDER BY sort_order ASC",
+    [req.params.id]
+  );
+  return res.json({ levels });
+});
+
+app.put("/v1/restaurants/:id/guest-levels", authRequired, async (req, res) => {
+  const { db } = await dbPromise;
+  const levels = req.body.levels;
+  if (!Array.isArray(levels)) {
+    return res.status(400).json({ error: "levels_required" });
+  }
+  try {
+    await ensureRestaurantOwner(db, req.params.id, req.user.id);
+    await db.run("DELETE FROM guest_levels WHERE restaurant_id = ?", [req.params.id]);
+    for (let i = 0; i < levels.length; i++) {
+      const level = levels[i];
+      const title = String(level.title || "").trim();
+      const minOrders = Number.parseInt(level.minOrders, 10) || 0;
+      if (!title) continue;
+      const id = require("nanoid").nanoid();
+      await db.run(
+        "INSERT INTO guest_levels (id, restaurant_id, title, min_orders, sort_order) VALUES (?, ?, ?, ?, ?)",
+        [id, req.params.id, title, minOrders, i]
+      );
+    }
+    return res.json({ status: "ok" });
+  } catch (error) {
+    return res.status(error.status || 403).json({ error: error.message });
+  }
 });
 
 app.get("/v1/restaurants/:id/menu", async (req, res) => {
@@ -257,6 +392,7 @@ app.post("/v1/restaurants/:id/dishes", authRequired, async (req, res) => {
     ? null
     : Number.parseInt(req.body.price, 10);
   const sources = req.body.sources ? String(req.body.sources) : null;
+  const imageUrl = String(req.body.imageUrl || "").trim() || null;
   if (!name) {
     return res.status(400).json({ error: "name_required" });
   }
@@ -265,7 +401,7 @@ app.post("/v1/restaurants/:id/dishes", authRequired, async (req, res) => {
     const id = require("nanoid").nanoid();
     await db.run(
       "INSERT INTO dishes (id, restaurant_id, category_id, name, image_url, description, price, sources, is_deleted, order_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, req.params.id, categoryId, name, null, description, price, sources, 0, 0, Date.now()]
+      [id, req.params.id, categoryId, name, imageUrl, description, price, sources, 0, 0, Date.now()]
     );
     return res.json({ id });
   } catch (error) {
@@ -282,15 +418,25 @@ app.put("/v1/restaurants/:id/dishes/:dishId", authRequired, async (req, res) => 
     ? null
     : Number.parseInt(req.body.price, 10);
   const sources = req.body.sources ? String(req.body.sources) : null;
+  const imageUrl = req.body.imageUrl !== undefined
+    ? (String(req.body.imageUrl || "").trim() || null)
+    : undefined;
   if (!name) {
     return res.status(400).json({ error: "name_required" });
   }
   try {
     await ensureRestaurantOwner(db, req.params.id, req.user.id);
-    await db.run(
-      "UPDATE dishes SET name = ?, category_id = ?, description = ?, price = ?, sources = ? WHERE id = ? AND restaurant_id = ?",
-      [name, categoryId, description, price, sources, req.params.dishId, req.params.id]
-    );
+    if (imageUrl !== undefined) {
+      await db.run(
+        "UPDATE dishes SET name = ?, category_id = ?, description = ?, price = ?, sources = ?, image_url = ? WHERE id = ? AND restaurant_id = ?",
+        [name, categoryId, description, price, sources, imageUrl, req.params.dishId, req.params.id]
+      );
+    } else {
+      await db.run(
+        "UPDATE dishes SET name = ?, category_id = ?, description = ?, price = ?, sources = ? WHERE id = ? AND restaurant_id = ?",
+        [name, categoryId, description, price, sources, req.params.dishId, req.params.id]
+      );
+    }
     return res.json({ status: "ok" });
   } catch (error) {
     return res.status(error.status || 403).json({ error: error.message });

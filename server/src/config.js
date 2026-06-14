@@ -36,6 +36,7 @@ const config = {
     rpOrigin: process.env.RP_ORIGIN || "http://localhost:5173",
     rpName: process.env.RP_NAME || "Love Menu"
   },
+  corsOrigin: process.env.CORS_ORIGIN || "",
   vapid: {
     publicKey: process.env.VAPID_PUBLIC_KEY || "",
     privateKey: process.env.VAPID_PRIVATE_KEY || "",

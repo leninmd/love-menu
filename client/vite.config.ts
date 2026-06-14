@@ -7,7 +7,7 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico'],
+      includeAssets: ['favicon.ico', 'icon-192.png', 'icon-512.png'],
       manifest: {
         name: '恋上菜单',
         short_name: '恋上菜单',
@@ -15,7 +15,11 @@ export default defineConfig({
         theme_color: '#fbf7f2',
         background_color: '#fbf7f2',
         display: 'standalone',
-        start_url: '/'
+        start_url: '/',
+        icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
+        ]
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],

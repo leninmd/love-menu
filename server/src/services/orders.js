@@ -55,6 +55,10 @@ async function createOrderFromCart(db, cartId, customerId, restaurantId) {
         item.dish_id
       ]
     );
+    await db.run(
+      "UPDATE dishes SET order_count = order_count + ? WHERE id = ?",
+      [item.quantity, item.dish_id]
+    );
   }
 
   await db.run("DELETE FROM cart_items WHERE cart_id = ?", [cartId]);

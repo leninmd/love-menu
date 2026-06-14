@@ -6,7 +6,7 @@ interface CartItem {
   name: string
 }
 
-const props = defineProps<{
+defineProps<{
   items: CartItem[]
   loading: boolean
 }>()

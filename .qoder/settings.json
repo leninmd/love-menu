@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const c=[];process.stdin.on('data',d=>c.push(d));process.stdin.on('end',()=>{try{const j=JSON.parse(Buffer.concat(c).toString()),f=j.tool_response?.filePath||j.tool_input?.file_path;if(!f)return;const e=f.split('.').pop();if(['ts','vue','js','css','json','md'].includes(e))require('child_process').execSync('npx prettier --write \\\"'+f+'\\\"',{stdio:'inherit'})}catch(e){}})\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -195,6 +195,7 @@ export async function createDish(
     description?: string
     price?: number | null
     sources?: string | null
+    imageUrl?: string
   }
 ) {
   return request<{ id: string }>(`/v1/restaurants/${restaurantId}/dishes`, {
@@ -378,4 +379,103 @@ export async function completeOwnerOrder(
     body: { restaurantId },
     token
   })
+}
+
+export interface Restaurant {
+  id: string
+  name: string
+  avatar_url: string | null
+  intro: string | null
+  is_deleted: number
+  created_at: number
+}
+
+export async function createRestaurant(
+  token: string,
+  name: string,
+  intro?: string
+) {
+  return request<{ id: string; name: string }>(`/v1/restaurants`, {
+    method: 'POST',
+    body: { name, intro },
+    token
+  })
+}
+
+export async function listMyRestaurants(token: string) {
+  return request<{ restaurants: Restaurant[] }>(`/v1/restaurants/mine`, {
+    token
+  })
+}
+
+export async function updateRestaurant(
+  token: string,
+  restaurantId: string,
+  payload: { name: string; intro?: string; avatarUrl?: string }
+) {
+  return request<{ status: string }>(`/v1/restaurants/${restaurantId}`, {
+    method: 'PUT',
+    body: payload,
+    token
+  })
+}
+
+export async function deleteRestaurant(token: string, restaurantId: string) {
+  return request<{ status: string }>(`/v1/restaurants/${restaurantId}`, {
+    method: 'DELETE',
+    token
+  })
+}
+
+export async function uploadImage(token: string, file: File) {
+  const formData = new FormData()
+  formData.append('image', file)
+  const baseUrl =
+    (import.meta.env.VITE_API_BASE as string)?.replace(/\/$/, '') ||
+    'http://localhost:3000'
+  const resp = await fetch(`${baseUrl}/v1/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
+  })
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({ error: resp.statusText }))
+    throw new Error(body.error || resp.statusText)
+  }
+  return resp.json() as Promise<{ imageUrl: string }>
+}
+
+export async function deleteAccount(token: string) {
+  return request<{ status: string }>(`/v1/users/me`, {
+    method: 'DELETE',
+    token
+  })
+}
+
+export interface GuestLevel {
+  id: string
+  title: string
+  min_orders: number
+  sort_order: number
+}
+
+export async function fetchGuestLevels(restaurantId: string) {
+  return request<{ levels: GuestLevel[] }>(
+    `/v1/restaurants/${restaurantId}/guest-levels`
+  )
+}
+
+export async function updateGuestLevels(
+  token: string,
+  restaurantId: string,
+  levels: { title: string; minOrders: number }[]
+) {
+  return request<{ status: string }>(
+    `/v1/restaurants/${restaurantId}/guest-levels`,
+    {
+      method: 'PUT',
+      body: { levels },
+      token
+    }
+  )
 }

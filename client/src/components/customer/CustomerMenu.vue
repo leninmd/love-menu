@@ -29,16 +29,6 @@ function formatPrice(price?: number | null) {
   return `¥${(price / 100).toFixed(0)}`
 }
 
-function formatStatus(status?: string) {
-  if (!status) return '已提交'
-  const map: Record<string, string> = {
-    submitted: '已提交',
-    accepted: '已接单',
-    completed: '已完成'
-  }
-  return map[status] || status
-}
-
 function parseSources(value?: string | null) {
   if (!value) return []
   return value

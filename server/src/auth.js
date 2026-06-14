@@ -37,18 +37,33 @@ function extractToken(req) {
   return headerToken || queryToken || "";
 }
 
-function createEmailSession(email) {
-  const user = { id: nanoid(), email };
+function createEmailSession(user) {
   return {
     user,
     token: signToken(user)
   };
 }
 
+async function findOrCreateUser(db, email) {
+  const existing = await db.get(
+    "SELECT id, email, nickname, avatar_url FROM users WHERE email = ?",
+    [email]
+  );
+  if (existing) return existing;
+
+  const id = nanoid();
+  await db.run(
+    "INSERT INTO users (id, email, created_at) VALUES (?, ?, ?)",
+    [id, email, Date.now()]
+  );
+  return { id, email, nickname: null, avatar_url: null };
+}
+
 module.exports = {
   signToken,
   authRequired,
   createEmailSession,
+  findOrCreateUser,
   verifyToken,
   extractToken
 };

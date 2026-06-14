@@ -23,6 +23,8 @@ async function createDatabase() {
     sqlite = new SQL.Database();
   }
 
+  sqlite.run("PRAGMA foreign_keys = ON");
+
   function persist() {
     const data = sqlite.export();
     fs.writeFileSync(config.databasePath, Buffer.from(data));

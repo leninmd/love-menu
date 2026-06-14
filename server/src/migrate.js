@@ -105,6 +105,14 @@ async function migrate() {
       payload TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS guest_levels (
+      id TEXT PRIMARY KEY,
+      restaurant_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      min_orders INTEGER NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
   `);
   persist();
 }

@@ -20,7 +20,7 @@ async function ensureSampleRestaurant(db, ownerId) {
 
 async function ensureRestaurantOwner(db, restaurantId, ownerId) {
   const record = await db.get(
-    "SELECT id, owner_id FROM restaurants WHERE id = ?",
+    "SELECT id, owner_id, is_deleted FROM restaurants WHERE id = ?",
     [restaurantId]
   );
   if (!record) {
@@ -36,4 +36,41 @@ async function ensureRestaurantOwner(db, restaurantId, ownerId) {
   return record;
 }
 
-module.exports = { ensureSampleRestaurant, ensureRestaurantOwner };
+async function createRestaurant(db, ownerId, name, intro) {
+  const id = nanoid();
+  await db.run(
+    "INSERT INTO restaurants (id, owner_id, name, avatar_url, intro, is_deleted, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, ownerId, name, null, intro || null, 0, now()]
+  );
+  return { id, name, intro };
+}
+
+async function listMyRestaurants(db, ownerId) {
+  return db.all(
+    "SELECT id, name, avatar_url, intro, is_deleted, created_at FROM restaurants WHERE owner_id = ? ORDER BY created_at DESC",
+    [ownerId]
+  );
+}
+
+async function updateRestaurant(db, restaurantId, name, intro, avatarUrl) {
+  await db.run(
+    "UPDATE restaurants SET name = ?, intro = ?, avatar_url = ? WHERE id = ?",
+    [name, intro || null, avatarUrl || null, restaurantId]
+  );
+}
+
+async function softDeleteRestaurant(db, restaurantId) {
+  await db.run(
+    "UPDATE restaurants SET is_deleted = 1 WHERE id = ?",
+    [restaurantId]
+  );
+}
+
+module.exports = {
+  ensureSampleRestaurant,
+  ensureRestaurantOwner,
+  createRestaurant,
+  listMyRestaurants,
+  updateRestaurant,
+  softDeleteRestaurant
+};

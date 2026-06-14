@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(echo '{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"D:/PersonalProjects/love-menu/AGENTS.md\"},\"tool_response\":{\"filePath\":\"D:/PersonalProjects/love-menu/AGENTS.md\"}}' | npx --prefix \"D:/PersonalProjects/love-menu\" prettier --write \"D:/PersonalProjects/love-menu/AGENTS.md\" 2>&1; echo \"exit: $?\")",
+      "Bash(where gh 2>/dev/null || which gh 2>/dev/null || echo \"gh not found\")",
+      "Bash(cd \"D:/PersonalProjects/love-menu\" && echo '{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"D:/PersonalProjects/love-menu/AGENTS.md\"},\"tool_response\":{\"filePath\":\"D:/PersonalProjects/love-menu/AGENTS.md\"}}' | jq -r '.tool_response.filePath // .tool_input.file_path' | { read -r f; case \"$f\" in *.ts|*.vue|*.js|*.css|*.json|*.md\\) npx prettier --write \"$f\" ;; *\\) echo \"skipped: $f\" ;; esac; } 2>/dev/null || true)",
+      "Bash(cd \"D:/PersonalProjects/love-menu\" && echo '{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"D:/PersonalProjects/love-menu/AGENTS.md\"},\"tool_response\":{\"filePath\":\"D:/PersonalProjects/love-menu/AGENTS.md\"}}' | node -e \"\nconst chunks = [];\nprocess.stdin.on\\('data', c => chunks.push\\(c\\)\\);\nprocess.stdin.on\\('end', \\(\\) => {\n  const d = JSON.parse\\(Buffer.concat\\(chunks\\).toString\\(\\)\\);\n  const f = d.tool_response?.filePath || d.tool_input?.file_path;\n  if \\(!f\\) process.exit\\(0\\);\n  const ext = f.split\\('.'\\).pop\\(\\);\n  if \\(['ts','vue','js','css','json','md'].includes\\(ext\\)\\) {\n    const { execSync } = require\\('child_process'\\);\n    try { execSync\\('npx prettier --write \\\\\"' + f + '\\\\\"', { stdio: 'inherit' }\\); } catch\\(e\\) {}\n  }\n}\\);\n\" 2>/dev/null; echo \"exit: $?\")",
+      "Bash(ls \"D:/PersonalProjects/love-menu/.qoder/settings.json\" 2>/dev/null && echo \"exists\" || echo \"not found\")",
+      "Bash(node:*)",
+      "Bash(winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements 2>&1 | tail -10)",
+      "Bash(cd \"D:/PersonalProjects/love-menu/client\" && npm install --save-dev eslint @vue/eslint-config-typescript eslint-plugin-vue 2>&1 | tail -5)",
+      "Bash(cd \"D:/PersonalProjects/love-menu/server\" && npm install --save-dev eslint 2>&1 | tail -5)",
+      "Bash(cd \"D:/PersonalProjects/love-menu/server\" && npm install --save-dev @eslint/js 2>&1 | tail -3)",
+      "Bash(cd \"D:/PersonalProjects/love-menu/server\" && npx eslint . 2>&1 | tail -10)",
+      "Bash(cd \"D:/PersonalProjects/love-menu/client\" && npx eslint . 2>&1 | tail -10)",
+      "Bash(ls \"D:/PersonalProjects/love-menu/package-lock.json\" 2>/dev/null && echo \"exists\" || echo \"not found\")"
+    ]
+  }
+}
