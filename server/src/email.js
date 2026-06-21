@@ -1,6 +1,6 @@
 'use strict'
 
-const nodemailer = require('nodemailer')
+const https = require('https')
 const { config } = require('./config')
 const { now } = require('./utils')
 
@@ -56,29 +56,56 @@ function ensureEmailValue(email) {
   return normalized
 }
 
-let transporter
+// ============================================================
+//  Brevo Transactional HTTP API
+// ============================================================
 
-function getTransporter() {
-  if (!config.smtp.host || !config.smtp.port) {
-    return null
-  }
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.secure,
-      auth: config.smtp.user
-        ? {
-            user: config.smtp.user,
-            pass: config.smtp.pass,
-          }
-        : undefined,
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
+function parseSender(fromStr) {
+  const match = fromStr.match(/^(.+?)\s*<(.+?)>$/)
+  if (match) return { name: match[1].trim(), email: match[2].trim() }
+  return { email: fromStr.trim() }
+}
+
+function sendViaBrevoApi(to, subject, text) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      sender: parseSender(config.smtp.from),
+      to: [{ email: to }],
+      subject,
+      textContent: text,
     })
-  }
-  return transporter
+    const req = https.request(
+      {
+        hostname: 'api.brevo.com',
+        path: '/v3/smtp/email',
+        method: 'POST',
+        headers: {
+          'api-key': config.smtp.pass,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: 15000,
+      },
+      (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c))
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(data)
+          } else {
+            reject(new Error(`brevo_${res.statusCode}:${data.slice(0, 200)}`))
+          }
+        })
+      },
+    )
+    req.on('error', reject)
+    req.on('timeout', () => {
+      req.destroy()
+      reject(new Error('brevo_timeout'))
+    })
+    req.write(body)
+    req.end()
+  })
 }
 
 function generateCode() {
@@ -118,24 +145,16 @@ async function requestEmailCode(email) {
     return { status: 'ok', expiresAt: record.expiresAt }
   }
 
-  const smtp = getTransporter()
-  if (!smtp) {
+  if (!config.smtp.pass || !config.smtp.from) {
     const error = new Error('smtp_not_configured')
     error.status = 500
     throw error
   }
 
   try {
-    await smtp.sendMail({
-      from: config.smtp.from,
-      to: normalized,
-      subject: '恋上菜单验证码',
-      text: `你的验证码是 ${code}，10 分钟内有效。`,
-    })
+    await sendViaBrevoApi(normalized, '恋上菜单验证码', `你的验证码是 ${code}，10 分钟内有效。`)
   } catch (error) {
-    console.error(
-      JSON.stringify({ level: 'error', type: 'smtp', message: error.message, code: error.code }),
-    )
+    console.error(JSON.stringify({ level: 'error', type: 'brevo_api', message: error.message }))
     const sendError = new Error('send_failed')
     sendError.status = 500
     throw sendError
