@@ -16,20 +16,19 @@ const route = useRoute()
 const session = useSession()
 const flow = useCustomerFlow(
   () => session.token.value,
-  () => activeRestaurantId.value
+  () => activeRestaurantId.value,
 )
 const stream = useOrderStream()
 const messages = useMessages(
   () => session.token.value,
-  () => activeRestaurantId.value
+  () => activeRestaurantId.value,
 )
 
 const guestRestaurantId = shallowRef('')
-const activeRestaurantId = computed(
-  () => session.restaurantId.value || guestRestaurantId.value
-)
+const activeRestaurantId = computed(() => session.restaurantId.value || guestRestaurantId.value)
 const showAuthPrompt = shallowRef(false)
 const pendingDishId = shallowRef('')
+const initReady = shallowRef(false)
 
 const search = shallowRef('')
 const searchTerm = computed(() => search.value.trim())
@@ -41,12 +40,12 @@ watch(
   (value) => {
     if (searchTimer) window.clearTimeout(searchTimer)
     searchTimer = window.setTimeout(() => {
-      if (activeRestaurantId.value) {
+      if (initReady.value && activeRestaurantId.value) {
         flow.loadMenu(value)
       }
     }, 300)
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 let pollTimer: number | null = null
@@ -91,14 +90,15 @@ async function init() {
       flow.loadMenu(searchTerm.value),
       flow.loadCart(),
       flow.loadOrders(),
-      messages.loadCustomer()
+      messages.loadCustomer(),
     ])
     stream.connect(session.token.value, {
       owner: false,
-      restaurantId: session.restaurantId.value
+      restaurantId: activeRestaurantId.value,
     })
     startPolling()
   }
+  initReady.value = true
 }
 
 async function handleAddItem(dishId: string) {
@@ -121,7 +121,7 @@ async function handleLoginForCart(token: string) {
   await Promise.all([flow.loadMenu(), flow.loadCart(), flow.loadOrders()])
   stream.connect(session.token.value, {
     owner: false,
-    restaurantId: session.restaurantId.value
+    restaurantId: activeRestaurantId.value,
   })
   startPolling()
 }
@@ -149,9 +149,7 @@ onBeforeUnmount(() => {
         <p class="panel-tag">顾客端</p>
         <h1 class="panel-title">点餐流程</h1>
       </div>
-      <button class="panel-action" type="button" @click="flow.loadMenu()">
-        刷新菜单
-      </button>
+      <button class="panel-action" type="button" @click="flow.loadMenu()">刷新菜单</button>
     </header>
     <p v-if="session.loading.value" class="panel-hint">正在连接服务...</p>
     <p v-else-if="session.error.value" class="panel-error">
@@ -164,9 +162,7 @@ onBeforeUnmount(() => {
     <div v-if="showAuthPrompt" class="auth-overlay">
       <p class="auth-hint">请先登录后再操作</p>
       <AuthPanel @success="handleLoginForCart" />
-      <button class="auth-cancel" type="button" @click="showAuthPrompt = false">
-        取消
-      </button>
+      <button class="auth-cancel" type="button" @click="showAuthPrompt = false">取消</button>
     </div>
 
     <div class="panel-grid">
