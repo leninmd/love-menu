@@ -107,6 +107,9 @@ async function migrate() {
   for (const ddl of TABLES) {
     await db.run(ddl)
   }
+  try {
+    await db.run('ALTER TABLE users ADD COLUMN password_hash TEXT')
+  } catch (_) {}
 }
 
 module.exports = { migrate }
